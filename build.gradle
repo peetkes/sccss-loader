@@ -139,6 +139,7 @@ class DhfMlcpTask extends com.marklogic.gradle.task.MlcpTask {
 // dynamicalluy creation fo
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-Observation") && value) {
+        def seq = key.tokenize("-")  
         def entityType = seq[1]
         def recordType = seq[2].toLowerCase()
         def separator = value.substring(0, value.lastIndexOf(","))
