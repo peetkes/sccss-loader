@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - java 8 sdk
-- marklogic datahub client jar version 5.2.3
+- marklogic datahub client jar version 5.2.3 (download it here: https://github.com/marklogic/marklogic-data-hub/releases/download/v5.2.3/marklogic-data-hub-5.2.3-client.jar)
 - gradle-[environmentName].properties file with appropriate properties set
 
 ## Properties file

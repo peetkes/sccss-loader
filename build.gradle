@@ -66,7 +66,7 @@ class ImportTask extends com.marklogic.gradle.task.MlcpTask {
    ImportTask() {
         classpath = project.configurations.mlcp
         command = "IMPORT"
-        username = project.property('mlUserName')
+        username = project.property('mlUsername')
         password = project.property('mlPassword')
         output_permissions = "data-hub-operator,read,data-hub-operator,update"
         thread_count = Integer.parseInt(project.property("mlcpThreadCount"))
@@ -127,7 +127,7 @@ class DhfMlcpTask extends com.marklogic.gradle.task.MlcpTask {
         classpath = project.configurations.mlcp
         command = "IMPORT"
         port = project.property("mlStagingPort").toInteger()
-        username = project.property("mlUserName")
+        username = project.property("mlUsername")
         password = project.property("mlPassword")
         output_permissions = "data-hub-operator,read,data-hub-operator,update"
         transform_module = "/data-hub/5/transforms/mlcp-flow-transform.sjs"
@@ -139,20 +139,18 @@ class DhfMlcpTask extends com.marklogic.gradle.task.MlcpTask {
 // dynamicalluy creation fo
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-Observation") && value) {
-        def seq = key.tokenize("-")  
         def entityType = seq[1]
-        def recordType = seq[2]
+        def recordType = seq[2].toLowerCase()
+        def separator = value.substring(0, value.lastIndexOf(","))
+        def delimiter = separator + "-delimit.opt"
+        def path = value.substring(value.lastIndexOf(",")+ 1)
         task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
             group = "MLCP Observation"
-            input_file_path = value
+            input_file_path = path
             input_file_type = "delimited_text"
-            output_uri_replace = ".*Data,''"
-            output_uri_prefix = "/${sccssProject}/Observations/${recordType}-"
             output_collections = "${entityType},sccss-ingest,type/${recordType},project/${sccssProject}"
             document_type = "json"
-            output_uri_suffix = ".json"
-            delimiter = ","
-            uri_id="ID"
+            generate_uri = true
             transform_param = 'step=1,flow-name=ingestCSVData,options={' +
             '  \"headers\" : {' +
             '    \"sources\" : [ {' +
@@ -165,6 +163,8 @@ project.properties.each { key, value ->
             '  },' +
             '  \"outputFormat\" : \"json\"' +
             '}'
+            args = ["-options_file", delimiter]
+
         }
     }
 }
@@ -249,7 +249,7 @@ task runFlow(type: JavaExec) {
    main = 'com.marklogic.hub.cli.client.Main'
    args 'runFlow'
    args '-host', project.property('mlHost')
-   args '-username', project.property('mlUserName')
+   args '-username', project.property('mlUsername')
    args '-password', project.property('mlPassword')
    args '-flowName', flowName
    args '-steps', step
