@@ -1,0 +1,256 @@
+plugins { 
+    id 'java'
+
+    // Gradle Properties plugin
+    id 'net.saliman.properties' version '1.4.6'
+
+    // Data Hub plugin
+    id 'com.marklogic.ml-data-hub' version '5.2.2'
+
+    id "io.github.http-builder-ng.http-plugin" version "0.1.1"
+}
+
+repositories {
+    jcenter()
+    maven { url 'https://dl.bintray.com/marklogic-community/Maven/' }
+	maven { url "http://developer.marklogic.com/maven2/" }
+}
+
+configurations {
+    mlcp
+}
+
+dependencies {
+    mlcp "com.marklogic:mlcp:10.0.4"
+    mlcp files("mlcp")
+}
+ext {
+    MLCP_LOGFILE = "./mlcp.log"
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def tasks = taskGraph.getAllTasks()
+    tasks.findAll { task ->
+        // these are the allowed tasks
+        def allowedTasks = [
+            'mlDeleteCollections'
+        ]
+        if (((task.name.startsWith("ml") && !(task.name.startsWith("mlcp"))) || task.name.startsWith("hub") ) && 
+                task.name in allowedTasks == false )  {
+            task.enabled=false
+            println("This project does not allow you to run task [" + task.name + "] ")
+        }
+    }
+}
+
+task deleteOntology(type: com.marklogic.gradle.task.MarkLogicTask) {
+    group 'Configuration Ontology'
+    doFirst {
+        println "deleting triple graph FiscaleontologyKC"
+    }
+    doLast {
+        try {
+            getManageClient().delete("/v1/graphs?database=${mlStagingDbName}&graph=http://sensingclues.nl/SCCSS-Ontology")
+        } catch (e) {
+            println "Staging Ontology was not loaded..."
+		}
+        try {
+            getManageClient().delete("/v1/graphs?database=${mlFinalDbName}&graph=http://sensingclues.nl/SCCSS-Ontology")
+        } catch (e) {
+            println "Final Ontology was not loaded..."
+		}
+	}
+}
+
+class ImportTask extends com.marklogic.gradle.task.MlcpTask {
+   ImportTask() {
+        classpath = project.configurations.mlcp
+        command = "IMPORT"
+        username = project.property('mlUserName')
+        password = project.property('mlPassword')
+        output_permissions = "data-hub-operator,read,data-hub-operator,update"
+        thread_count = Integer.parseInt(project.property("mlcpThreadCount"))
+        batch_size = Integer.parseInt(project.property("mlcpBatchSize"))
+    } 
+}
+
+task loadConfiguration(type: ImportTask) {
+    group 'Configuration'
+    port = mlStagingPort.toInteger()
+    input_file_path = sccssConfigurationLocation
+    input_file_pattern=".*\\.json"
+    output_uri_replace = ".*data,''"
+    output_collections = "configuration"
+}
+
+task loadOntologyStaging(type: ImportTask) {
+    group 'Configuration Ontology'
+    port = mlStagingPort.toInteger()
+    input_file_path = project.property('sccssOntologyLocation')
+    input_file_pattern=".*\\.trig"
+    input_file_type = "RDF"
+    output_collections = "http://sensingclues.nl/SCCSS-Ontology"
+}
+
+task loadOntologyFinal(type: ImportTask) {
+    group 'Configuration Ontology'
+    port = mlFinalPort.toInteger()
+    input_file_path = project.property('sccssOntologyLocation')
+    input_file_pattern=".*\\.trig"
+    input_file_type = "RDF"
+    output_collections = "http://sensingclues.nl/SCCSS-Ontology"
+}
+
+task loadOntology(dependsOn: ['deleteOntology','loadOntologyStaging','loadOntologyFinal'])
+
+task deployProject(type: io.github.httpbuilderng.http.HttpTask){
+    group 'Configuration Project'
+    config {
+        request.uri = 'http://' + mlHost + ":" + mlStagingPort.toInteger()
+        request.contentType = 'application/json'
+        request.auth.digest(mlUsername, mlPassword)
+        request.body = [name: sccssProject, description: sccssProjectDescription]
+    }
+    post {
+        request.uri.path = '/v1/resources/project'
+        response.success {  groovyx.net.http.FromServer fs, Object body ->
+            println "Success: ${fs.statusCode}, Response is: ${body}"
+        }
+        response.failure { groovyx.net.http.FromServer fs, Object body ->
+            println "Failure: ${fs.statusCode}, Response is: ${body}"
+        }
+    }
+}
+
+class DhfMlcpTask extends com.marklogic.gradle.task.MlcpTask {
+    DhfMlcpTask() {
+        classpath = project.configurations.mlcp
+        command = "IMPORT"
+        port = project.property("mlStagingPort").toInteger()
+        username = project.property("mlUserName")
+        password = project.property("mlPassword")
+        output_permissions = "data-hub-operator,read,data-hub-operator,update"
+        transform_module = "/data-hub/5/transforms/mlcp-flow-transform.sjs"
+        batch_size=project.property("mlcpBatchSize").toInteger()
+        thread_count=project.property("mlcpThreadCount").toInteger()
+    }
+}
+
+// dynamicalluy creation fo
+project.properties.each { key, value ->
+    if (key.startsWith("mlcp-Observation") && value) {
+        def seq = key.tokenize("-")  
+        def entityType = seq[1]
+        def recordType = seq[2]
+        task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
+            group = "MLCP Observation"
+            input_file_path = value
+            input_file_type = "delimited_text"
+            output_uri_replace = ".*Data,''"
+            output_uri_prefix = "/${sccssProject}/Observations/${recordType}-"
+            output_collections = "${entityType},sccss-ingest,type/${recordType},project/${sccssProject}"
+            document_type = "json"
+            output_uri_suffix = ".json"
+            delimiter = ","
+            uri_id="ID"
+            transform_param = 'step=1,flow-name=ingestCSVData,options={' +
+            '  \"headers\" : {' +
+            '    \"sources\" : [ {' +
+            '      \"name\" : \"ingestCSVData\"' +
+            '    } ],' +
+            '    \"projectName\" : \"' +sccssProject + '\",' +
+            '    \"projectId\" : \"' +sccssProjectId + '\",' +
+            '    \"entityName\" : \"' + entityType + '\",' +
+            '    \"entityType\" : \"' + recordType + '\"' +
+            '  },' +
+            '  \"outputFormat\" : \"json\"' +
+            '}'
+        }
+    }
+}
+
+task mlcpAllObservations {
+    dependsOn {
+        tasks.findAll { task -> "MLCP Observation".equals(task.group) }
+    }
+}
+
+project.properties.each { key, value ->
+    if (key.startsWith("mlcp-Media") && value) {
+        def seq = key.tokenize("-")  
+        def entityType = seq[1]
+        def recordType = seq[2]
+        task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
+            group 'MLCP Media'
+            input_file_path = value
+            input_file_type = "documents"
+            input_file_pattern = ".*\\.JPG"
+            document_type = "binary"
+            output_uri_replace = ".*${value},''"
+            output_uri_prefix = "/${sccssProject}/${entityType}/${recordType}"
+            output_collections = "${entityType},sccss-binaries,type/${recordType},project/${sccssProject}"
+            transform_param = 'step=1,flow-name=IngestBinaries,options={' +
+            '  \"headers\" : {' +
+            '    \"sources\" : [ {' +
+            '      \"name\" : \"IngestBinaries\"' +
+            '    } ],' +
+            '    \"projectName\" : \"' +sccssProject + '\",' +
+            '    \"projectId\" : \"' +sccssProjectId + '\",' +
+            '    \"entityName\" : \"' + entityType + '\",' +
+            '    \"entityType\" : \"' + recordType + '\"' +
+            '  }' +
+            '}'
+        }
+    }
+}
+task mlcpAllMedia {
+    dependsOn {
+        tasks.findAll { task -> "MLCP Media".equals(task.group) }
+    }
+}
+
+
+project.properties.each { key, value ->
+    if (key.startsWith("mlcp-GeoFeature") && value) {
+        def seq = key.tokenize("-")  
+        def entityType = seq[1]
+        def recordType = seq[2]
+        task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
+            group 'MLCP GeoFeature'
+            input_file_path = value
+            input_file_type = "documents"
+            input_file_pattern = ".*\\.LOG"
+            document_type = "text"
+            output_uri_replace = ".*${value},'',\\.LOG,'.json'"
+            output_uri_prefix = "/${sccssProject}/${entityType}/${recordType}"
+            output_collections = "${entityType},sccss-tracks,type/${recordType},project/${sccssProject}"
+            transform_param = 'step=1,flow-name=IngestTracks,options={' +
+            '  \"headers\" : {' +
+            '    \"sources\" : [ {' +
+            '      \"name\" : \"IngestTracks\"' +
+            '    } ],' +
+            '    \"projectName\" : \"' +sccssProject + '\",' +
+            '    \"projectId\" : \"' +sccssProjectId + '\",' +
+            '    \"entityName\" : \"' + entityType + '\",' +
+            '    \"entityType\" : \"' + recordType + '\"' +
+            '  }' +
+            '}'
+        }
+    }
+}
+task mlcpAllTracks {
+    dependsOn {
+        tasks.findAll { task -> "MLCP GeoFeature".equals(task.group) }
+    }
+}
+
+task runFlow(type: JavaExec) {
+   classpath = files('marklogic-data-hub-'+mlDHFVersion+'-client.jar')
+   main = 'com.marklogic.hub.cli.client.Main'
+   args 'runFlow'
+   args '-host', project.property('mlHost')
+   args '-username', project.property('mlUserName')
+   args '-password', project.property('mlPassword')
+   args '-flowName', flowName
+   args '-steps', step
+}
