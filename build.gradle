@@ -17,13 +17,19 @@ repositories {
 }
 
 configurations {
-    mlcp
+    mlcp {
+        // stop Gradle from complaining about "SLF4J: Class path contains multiple SLF4J bindings."
+        exclude group: 'ch.qos.logback', module: 'logback-classic'
+        exclude group: 'org.apache.avro', module: 'avro-tools'
+    }
 }
 
 dependencies {
     mlcp "com.marklogic:mlcp:10.0.4"
-    mlcp files("mlcp")
+    mlcp files("mlcp/conf")
+    mlcp files("mlcp/lib")
 }
+
 ext {
     MLCP_LOGFILE = "./mlcp.log"
 }
@@ -43,65 +49,67 @@ gradle.taskGraph.whenReady { taskGraph ->
     }
 }
 
-task deleteOntology(type: com.marklogic.gradle.task.MarkLogicTask) {
-    group 'Configuration Ontology'
-    doFirst {
-        println "deleting triple graph FiscaleontologyKC"
-    }
-    doLast {
-        try {
-            getManageClient().delete("/v1/graphs?database=${mlStagingDbName}&graph=http://sensingclues.nl/SCCSS-Ontology")
-        } catch (e) {
-            println "Staging Ontology was not loaded..."
-		}
-        try {
-            getManageClient().delete("/v1/graphs?database=${mlFinalDbName}&graph=http://sensingclues.nl/SCCSS-Ontology")
-        } catch (e) {
-            println "Final Ontology was not loaded..."
-		}
-	}
-}
-
-class ImportTask extends com.marklogic.gradle.task.MlcpTask {
-   ImportTask() {
-        classpath = project.configurations.mlcp
-        command = "IMPORT"
-        username = project.property('mlUsername')
-        password = project.property('mlPassword')
-        output_permissions = "data-hub-operator,read,data-hub-operator,update"
-        thread_count = Integer.parseInt(project.property("mlcpThreadCount"))
-        batch_size = Integer.parseInt(project.property("mlcpBatchSize"))
-    } 
-}
-
-task loadConfiguration(type: ImportTask) {
+task loadConfiguration(type: com.marklogic.gradle.task.MlcpTask) {
     group 'Configuration'
+    classpath = configurations.mlcp
+    command = "IMPORT"
+    username=mlUsername
+    password=mlPassword
     port = mlStagingPort.toInteger()
     input_file_path = sccssConfigurationLocation
     input_file_pattern=".*\\.json"
     output_uri_replace = ".*data,''"
-    output_collections = "configuration"
+    output_permissions = "data-hub-operator,read,data-hub-operator,update"
+    output_collections = "configuration,configuration/project"
 }
 
-task loadOntologyStaging(type: ImportTask) {
-    group 'Configuration Ontology'
-    port = mlStagingPort.toInteger()
-    input_file_path = project.property('sccssOntologyLocation')
-    input_file_pattern=".*\\.trig"
-    input_file_type = "RDF"
-    output_collections = "http://sensingclues.nl/SCCSS-Ontology"
+class DhfOntologyMlcpTask extends com.marklogic.gradle.task.MlcpTask {
+   DhfOntologyMlcpTask() {
+        classpath = project.configurations.mlcp
+        command = "IMPORT"
+        port = project.property("mlFinalPort").toInteger()
+        input_file_path = project.property('sccssOntologyLocation')
+        input_file_type = "RDF"
+        output_permissions = "data-hub-operator,read,data-hub-operator,update"
+   } 
 }
 
-task loadOntologyFinal(type: ImportTask) {
-    group 'Configuration Ontology'
-    port = mlFinalPort.toInteger()
-    input_file_path = project.property('sccssOntologyLocation')
-    input_file_pattern=".*\\.trig"
-    input_file_type = "RDF"
-    output_collections = "http://sensingclues.nl/SCCSS-Ontology"
+project.properties.each{ key, value ->
+    if (key.startsWith("mlcpOntology") && value) {
+        def seq = key.tokenize("-")  
+        def graph = seq[1]
+        task "mlcpOntologyDelete-${graph}"(type: com.marklogic.gradle.task.MarkLogicTask) {
+            group = "MLCP OntologyDelete"
+            doFirst {
+                println "deleting triple graph http://sensingclues.nl/${graph}"
+            }
+            doLast {
+                try {
+                    getManageClient().delete("/v1/graphs?database=${mlFinalDbName}&graph=http://sensingclues.nl/${graph}")
+                } catch (e) {
+                    println "Ontology in graph ${graph} was not loaded..."
+                }
+            }
+        }
+        task "mlcpOntologyLoad-${graph}"(type: DhfOntologyMlcpTask) {
+            group = "MLCP OntologyLoad"
+            input_file_pattern = value
+            output_collections = "http://sensingclues.nl/${graph}"
+        }
+    }
 }
 
-task loadOntology(dependsOn: ['deleteOntology','loadOntologyStaging','loadOntologyFinal'])
+task deleteOntology() {
+    dependsOn {
+        tasks.findAll { task -> "MLCP OntologyDelete".equals(task.group) }
+    }   
+}
+
+task loadOntology(dependsOn: ['deleteOntology']) {
+    dependsOn {
+        tasks.findAll { task -> "MLCP OntologyLoad".equals(task.group) }
+    }   
+}
 
 task deployProject(type: io.github.httpbuilderng.http.HttpTask){
     group 'Configuration Project'
@@ -136,7 +144,7 @@ class DhfMlcpTask extends com.marklogic.gradle.task.MlcpTask {
     }
 }
 
-// dynamicalluy creation fo
+// dynamically creation of loading Observations
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-Observation") && value) {
         def seq = key.tokenize("-")  
@@ -149,10 +157,11 @@ project.properties.each { key, value ->
             group = "MLCP Observation"
             input_file_path = path
             input_file_type = "delimited_text"
-            output_collections = "${entityType},sccss-ingest,type/${recordType},project/${sccssProject}"
+            output_collections = "${entityType},sccss-ingest,type/${recordType}"
             document_type = "json"
             generate_uri = true
             transform_param = 'step=1,flow-name=ingestCSVData,options={' +
+            '  \"generate_uri\" : true,' +
             '  \"headers\" : {' +
             '    \"sources\" : [ {' +
             '      \"name\" : \"ingestCSVData\"' +
@@ -165,7 +174,6 @@ project.properties.each { key, value ->
             '  \"outputFormat\" : \"json\"' +
             '}'
             args = ["-options_file", delimiter]
-
         }
     }
 }
@@ -176,41 +184,44 @@ task mlcpAllObservations {
     }
 }
 
+// dynamically creation of Media
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-Media") && value) {
         def seq = key.tokenize("-")  
         def entityType = seq[1]
-        def recordType = seq[2]
+        def recordType = seq[2].toLowerCase()
         task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
             group 'MLCP Media'
             input_file_path = value
             input_file_type = "documents"
-            input_file_pattern = ".*\\.JPG"
+            input_file_pattern = ".*\\.(avi|AVI|JPG|jpg|jpeg)"
             document_type = "binary"
             output_uri_replace = ".*${value},''"
-            output_uri_prefix = "/${sccssProject}/${entityType}/${recordType}"
-            output_collections = "${entityType},sccss-binaries,type/${recordType},project/${sccssProject}"
+            output_uri_prefix = "/${entityType}/${sccssProjectId}"
+            output_collections = "${entityType},sccss-binaries"
             transform_param = 'step=1,flow-name=IngestBinaries,options={' +
+            '  \"generate_uri\" : true,' +
             '  \"headers\" : {' +
             '    \"sources\" : [ {' +
             '      \"name\" : \"IngestBinaries\"' +
             '    } ],' +
             '    \"projectName\" : \"' +sccssProject + '\",' +
             '    \"projectId\" : \"' +sccssProjectId + '\",' +
-            '    \"entityName\" : \"' + entityType + '\",' +
-            '    \"entityType\" : \"' + recordType + '\"' +
-            '  }' +
+            '    \"entityName\" : \"' + entityType + '\"' +
+            '  },' +
+            '  \"outputFormat\" : \"json\"' +
             '}'
         }
     }
 }
+
 task mlcpAllMedia {
     dependsOn {
         tasks.findAll { task -> "MLCP Media".equals(task.group) }
     }
 }
 
-
+// dynamically creation of GeoFeatures
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-GeoFeature") && value) {
         def seq = key.tokenize("-")  
@@ -239,6 +250,7 @@ project.properties.each { key, value ->
         }
     }
 }
+
 task mlcpAllTracks {
     dependsOn {
         tasks.findAll { task -> "MLCP GeoFeature".equals(task.group) }

@@ -15,15 +15,15 @@ mlHost=localhost
 mlUsername=flow-operator
 mlPassword=flow-operator-pwd
 
-sccssOntologyLocation=/Users/pkester/Development/DIKW/SensingClues/sccss-mdh2/data/ontology
-sccssConfigurationLocation=/Users/pkester/Development/DIKW/SensingClues/sccss-mdh2/data/configuration
+sccssOntologyLocation=/Users/pkester/Development/SensingClues/sccss-mdh2/data/ontology
+sccssConfigurationLocation=/Users/pkester/Development/SensingClues/sccss-mdh2/data/configuration
 
 sccssProject=RewildingApennines
 sccssProjectId=9876543
-mlcp-Observation-Animal=tab,/Users/pkester/Development/DIKW/SensingClues/Data/RewildingApennines/multisources
-mlcp-Observation-Infrastructure=tab,/Users/pkester/Development/DIKW/SensingClues/Data/RewildingApennines/fences
+mlcp-Observation-Animal=tab,/Users/pkester/Development/SensingClues/Data/RewildingApennines/multisources
+mlcp-Observation-Infrastructure=tab,/Users/pkester/Development/SensingClues/Data/RewildingApennines/fences
 
-mlcp-GeoFeature-Geojson=/Users/pkester/Development/DIKW/SensingClues/Data/RewildingApennines/geojson
+mlcp-GeoFeature-Geojson=/Users/pkester/Development/SensingClues/Data/RewildingApennines/geojson
 
 ````
 
@@ -66,11 +66,11 @@ Run the following command to ingest data via mlcp into MarkLogic:
 
 Run the following command to run step 1 of flow `process-Observation`:
 
-    ./gradlew runFlow -PflowName=process-Observation -Pstep=1
+    ./gradlew runFlow -PflowName=process-Observations -Pstep=1
 
 Run the following command to run all steps of flow `process-Observation`:
 
-    ./gradlew runFlow -PflowName=process-Observation -Pstep=1,2,3
+    ./gradlew runFlow -PflowName=process-Observations -Pstep=1,2,3
 
 Run the following command to run step 1 of flow `process-Media`:
 
