@@ -60,17 +60,22 @@ Run the following command to ingest data via mlcp into MarkLogic:
 
     ./gradlew mlcpAllObservations -i -PprojectName=[project name] -PprojectId=[project identifier] -PenvironmentName=[environment]
     ./gradlew mlcpAllMedia -i -PprojectName=[project name] -PprojectId=[project identifier] -PenvironmentName=[environment]
-    ./gradlew mlcpAllTracks -i -PprojectName=[project name] -PprojectId=[project identifier] -PenvironmentName=[environment]
+    ./gradlew mlcpAllGeoFeatures -i -PprojectName=[project name] -PprojectId=[project identifier] -PenvironmentName=[environment]
 
 ## Run harmonization flows
 
-Run the following command to run step 1 of flow `process-Observation`:
+Run the following command to run step 1 of flow `process-Observations`:
 
     ./gradlew runFlow -PflowName=process-Observations -Pstep=1
 
-Run the following command to run all steps of flow `process-Observation`:
+Run the following command to run all steps of flow `process-Observations`:
 
-    ./gradlew runFlow -PflowName=process-Observations -Pstep=1,2,3
+    ./gradlew runFlow -PflowName=process-Observations -Pstep=1,2,3,4
+
+- step 1: Create Observation entity
+- step 2: Enrich Observation entity
+- step 3: Correct latitude/longitude coordinates
+- step 4: Create geoRegion field in header
 
 Run the following command to run step 1 of flow `process-Media`:
 
@@ -78,4 +83,20 @@ Run the following command to run step 1 of flow `process-Media`:
 
 Run the following command to run all steps of flow `process-Media`:
 
-    ./gradlew runFlow -PflowName=process-Media -Pstep=1,2
+    ./gradlew runFlow -PflowName=process-Media -Pstep=1,2,3
+
+- step 1: Create Media entity
+- step 2: Link Media entity to Observation entity
+- step 3: Create geoRegion field in header
+
+Run the following command to run step 1 of flow `process-GeoFeatures`:
+
+    ./gradlew runFlow -PflowName=process-GeoFeatures -Pstep=1
+
+Run the following command to run all steps of flow `process-GeoFeatures`:
+
+    ./gradlew runFlow -PflowName=process-GeoFeatures -Pstep=1,2,3
+
+- step 1: Create GeoFeature entity
+- step 2: Enrich GeoFeature entity
+- step 3: Create geoRegion field in header

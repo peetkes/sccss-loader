@@ -221,37 +221,59 @@ task mlcpAllMedia {
     }
 }
 
-// dynamically creation of GeoFeatures
 project.properties.each { key, value ->
     if (key.startsWith("mlcp-GeoFeature") && value) {
         def seq = key.tokenize("-")  
         def entityType = seq[1]
         def recordType = seq[2]
-        task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
-            group 'MLCP GeoFeature'
-            input_file_path = value
-            input_file_type = "documents"
-            input_file_pattern = ".*\\.LOG"
-            document_type = "text"
-            output_uri_replace = ".*${value},'',\\.LOG,'.json'"
-            output_uri_prefix = "/${sccssProject}/${entityType}/${recordType}"
-            output_collections = "${entityType},sccss-tracks,type/${recordType},project/${sccssProject}"
-            transform_param = 'step=1,flow-name=IngestTracks,options={' +
-            '  \"headers\" : {' +
-            '    \"sources\" : [ {' +
-            '      \"name\" : \"IngestTracks\"' +
-            '    } ],' +
-            '    \"projectName\" : \"' +sccssProject + '\",' +
-            '    \"projectId\" : \"' +sccssProjectId + '\",' +
-            '    \"entityName\" : \"' + entityType + '\",' +
-            '    \"entityType\" : \"' + recordType + '\"' +
-            '  }' +
-            '}'
+        if (recordType == 'Track') {
+            task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
+                group 'MLCP GeoFeature'
+                input_file_path = value
+                input_file_type = "documents"
+                input_file_pattern = ".*\\.LOG"
+                document_type = "text"
+                output_uri_replace = ".*${value},'',\\.LOG,'.json'"
+                output_uri_prefix = "/${entityType}/${sccssProjectId}/${recordType}"
+                output_collections = "${entityType},sccss-tracks,type/${recordType}"
+                transform_param = 'step=1,flow-name=IngestTracks,options={' +
+                '  \"headers\" : {' +
+                '    \"sources\" : [ {' +
+                '      \"name\" : \"IngestTracks\"' +
+                '    } ],' +
+                '    \"projectName\" : \"' +sccssProject + '\",' +
+                '    \"projectId\" : \"' +sccssProjectId + '\",' +
+                '    \"entityName\" : \"' + entityType + '\",' +
+                '    \"entityType\" : \"' + recordType + '\"' +
+                '  }' +
+                '}'
+            }
+        } else if (recordType == 'Geojson') {
+            task "mlcp-${entityType}-${recordType}"(type: DhfMlcpTask) {
+                group 'MLCP GeoFeature'
+                input_file_path = value
+                input_file_pattern = ".*\\.geojson"
+                input_file_type = "documents"
+                document_type = "text"
+                generate_uri = true
+                output_collections = "${entityType},sccss-geojson,type/${recordType}"
+                transform_param = 'step=1,flow-name=IngestGeojson,options={' +
+                '  \"generate_uri\" : true,' +
+                '  \"headers\" : {' +
+                '    \"sources\" : [ {' +
+                '      \"name\" : \"IngestGeoJson\"' +
+                '    } ],' +
+                '    \"projectName\" : \"' +sccssProject + '\",' +
+                '    \"projectId\" : \"' +sccssProjectId + '\",' +
+                '    \"entityName\" : \"' + entityType + '\",' +
+                '    \"entityType\" : \"' + recordType + '\"' +
+                '  }' +
+                '}'
+            }
         }
     }
 }
-
-task mlcpAllTracks {
+task mlcpAllGeoFeatures {
     dependsOn {
         tasks.findAll { task -> "MLCP GeoFeature".equals(task.group) }
     }
